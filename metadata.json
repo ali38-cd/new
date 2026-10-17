@@ -1,0 +1,6 @@
+{
+  "name": "AuraVoice AI - Unlimited Multilingual TTS & Voice Cloner",
+  "description": "Next-generation text-to-speech studio supporting Urdu and all languages with no limits, customizable pitch, speed, emotions, and reference voice cloning.",
+  "requestFramePermissions": ["microphone", "android.permission.RECORD_AUDIO"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
