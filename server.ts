@@ -750,6 +750,9 @@ Return ONLY a strict JSON object with this schema:
 
 // Vite middleware for dev / static serve for prod
 async function setupServer() {
+  if (process.env.VERCEL) {
+    return;
+  }
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
@@ -770,7 +773,12 @@ async function setupServer() {
   });
 }
 
-setupServer().catch((err) => {
-  console.warn('[AuraVoice] Failed to start server:', err);
-  process.exit(1);
-});
+if (!process.env.VERCEL) {
+  setupServer().catch((err) => {
+    console.warn('[AuraVoice] Failed to start server:', err);
+    process.exit(1);
+  });
+}
+
+export default app;
+
