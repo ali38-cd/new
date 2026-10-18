@@ -49,6 +49,7 @@ export default function App() {
 
   const [selectedProfileId, setSelectedProfileId] = useState<string>('urdu-tariq');
   const [isClonerModalOpen, setIsClonerModalOpen] = useState(false);
+  const [clonerDefaultTab, setClonerDefaultTab] = useState<'generator' | 'video' | 'record' | 'upload' | 'samples'>('generator');
   const [studioMode, setStudioMode] = useState<'tts' | 'video'>('tts');
 
   // Script & Language state
@@ -92,15 +93,16 @@ export default function App() {
   // Current selected profile
   const currentProfile = profiles.find((p) => p.id === selectedProfileId) || profiles[0];
 
-  // Save a new cloned profile
+  // Save a new cloned profile or AI-generated voice
   const handleSaveClonedProfile = (newProfile: VoiceProfile) => {
-    const updatedProfiles = [newProfile, ...profiles];
+    const withoutExisting = profiles.filter((p) => p.id !== newProfile.id);
+    const updatedProfiles = [newProfile, ...withoutExisting];
     setProfiles(updatedProfiles);
     setSelectedProfileId(newProfile.id);
 
     try {
-      const existingClones = profiles.filter((p) => p.isCloned);
-      localStorage.setItem(LOCAL_STORAGE_CLONES_KEY, JSON.stringify([newProfile, ...existingClones]));
+      const existingClones = updatedProfiles.filter((p) => p.isCloned || p.isAiGenerated);
+      localStorage.setItem(LOCAL_STORAGE_CLONES_KEY, JSON.stringify(existingClones));
     } catch (e) {
       console.warn('Failed to save clone to storage:', e);
     }
@@ -257,11 +259,14 @@ export default function App() {
           {/* Top Right Quick Actions */}
           <div className="flex items-center gap-2 sm:gap-3">
             <button
-              onClick={() => setIsClonerModalOpen(true)}
+              onClick={() => {
+                setClonerDefaultTab('generator');
+                setIsClonerModalOpen(true);
+              }}
               className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-500 via-pink-600 to-indigo-600 hover:from-amber-600 hover:to-indigo-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-pink-600/20 transition-all transform active:scale-95"
             >
-              <Mic className="w-3.5 h-3.5" />
-              <span>Voice Cloner</span>
+              <Wand2 className="w-3.5 h-3.5 text-amber-200" />
+              <span>Unlimited Voices</span>
             </button>
           </div>
         </div>
@@ -293,6 +298,11 @@ export default function App() {
             onAudioSynthesized={(b64, dur) => {
               setActiveAudioBase64(b64);
               setActiveDuration(dur);
+            }}
+            onSaveClonedProfile={handleSaveClonedProfile}
+            onOpenVoiceForge={() => {
+              setClonerDefaultTab('generator');
+              setIsClonerModalOpen(true);
             }}
           />
         ) : (
@@ -372,7 +382,10 @@ export default function App() {
                 profiles={profiles}
                 selectedProfileId={selectedProfileId}
                 onSelectProfile={(p) => setSelectedProfileId(p.id)}
-                onOpenClonerModal={() => setIsClonerModalOpen(true)}
+                onOpenClonerModal={(tab) => {
+                  setClonerDefaultTab(tab || 'generator');
+                  setIsClonerModalOpen(true);
+                }}
                 onDeleteClonedProfile={handleDeleteClonedProfile}
               />
             </div>
@@ -397,10 +410,10 @@ export default function App() {
             <div className="p-4 rounded-2xl bg-indigo-950/20 border border-indigo-500/20 text-xs space-y-2">
               <div className="flex items-center gap-2 text-indigo-300 font-semibold">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span>Unlimited Text Architecture</span>
+                <span>Unlimited Voices & Video Alignment Engine</span>
               </div>
               <p className="text-slate-400 text-[11px] leading-relaxed">
-                Long articles, stories, and speeches are automatically split on punctuation (including Urdu <code className="text-indigo-300 font-nastaliq">۔</code> and <code className="text-indigo-300 font-nastaliq">؟</code>) and re-stitched with sample-accurate RIFF headers for uninterrupted listening.
+                Generate unlimited AI voice personas with customized age, tone, and timbre, or upload any video where you speak anything to clone your voice and align your story.
               </p>
               </div>
             </div>
@@ -409,11 +422,12 @@ export default function App() {
       )}
       </main>
 
-      {/* Voice Cloner Modal */}
+      {/* Voice Cloner & Unlimited Voice Forge Modal */}
       <VoiceClonerModal
         isOpen={isClonerModalOpen}
         onClose={() => setIsClonerModalOpen(false)}
         onSaveProfile={handleSaveClonedProfile}
+        defaultTab={clonerDefaultTab}
       />
     </div>
   );

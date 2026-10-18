@@ -529,10 +529,174 @@ Select the baseVoice that closest matches the speaker's vocal frequency:
 });
 
 /**
+ * POST /api/voice/generate-voice-persona
+ * Generates UNLIMITED custom synthetic voices on demand from natural language prompts,
+ * acoustic descriptions, or randomized parameters, with instant vocal previews.
+ */
+app.post('/api/voice/generate-voice-persona', async (req, res) => {
+  try {
+    const {
+      prompt = '',
+      name = '',
+      gender = 'neutral',
+      ageGroup = 'adult',
+      timbreStyle = '',
+      language = 'Urdu',
+    } = req.body;
+
+    console.log(`[Voice Generator] Designing unlimited voice persona: prompt="${prompt}", lang=${language}, gender=${gender}`);
+
+    const generatorPrompt = `You are a world-leading vocal designer and acoustic synthesis engineer.
+Create a rich, distinct, lifelike voice persona profile based on this user request:
+"${prompt || `${gender} ${ageGroup} speaker with ${timbreStyle || 'natural expressive'} timbre in ${language}`}".
+
+Select the best baseVoice frequency from:
+- 'Fenrir': deep, authoritative, masculine, resonant low-end
+- 'Charon': calm, mature, deep, measured, contemplative
+- 'Puck': upbeat, expressive, youthful, playful, bright
+- 'Kore': warm, soothing, natural, expressive feminine/medium
+- 'Zephyr': clear, articulate, dynamic, melodic, contemporary
+
+Determine a pitchShift between -6 and +6 (semitones).
+Generate an evocative English name and an authentic native name if applicable (e.g. Urdu Nastaliq name if Urdu).
+Generate a rich description, timbre description, 3-4 vocal traits, cadence description, accent/dialect nuances, and an acoustic steering prompt for TTS.
+
+Return ONLY a strict JSON object with this schema:
+{
+  "name": "Creative Voice Name",
+  "nativeName": "Native script name or Urdu name",
+  "gender": "male" | "female" | "neutral",
+  "baseVoice": "Puck" | "Charon" | "Kore" | "Fenrir" | "Zephyr",
+  "pitchShift": 0,
+  "description": "Engaging 1-2 sentence description of this unique voice persona",
+  "timbreDescription": "Acoustic signature (e.g. velvety baritone with subtle raspy edge and warm chest resonance)",
+  "vocalTraits": ["Trait 1", "Trait 2", "Trait 3"],
+  "cadence": "Speaking rhythm and pacing description",
+  "accentDialect": "Specific accent and regional articulation nuances",
+  "steeringPrompt": "Precise director instructions for TTS under 200 chars"
+}`;
+
+    const designResponse = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: [{ role: 'user', parts: [{ text: generatorPrompt }] }],
+      config: { responseMimeType: 'application/json' },
+    });
+
+    const jsonText = designResponse.text?.trim() || '{}';
+    let profileData: any;
+    try {
+      profileData = JSON.parse(jsonText);
+    } catch (e) {
+      console.warn('[Voice Generator] JSON parse fallback on:', jsonText);
+      profileData = {
+        name: name || 'Aura Persona',
+        nativeName: 'صوتی فنکار',
+        gender: gender || 'neutral',
+        baseVoice: gender === 'female' ? 'Kore' : 'Fenrir',
+        pitchShift: 0,
+        description: 'Custom AI generated voice persona with expressive timbre.',
+        timbreDescription: 'Resonant and expressive natural timbre',
+        vocalTraits: ['Expressive', 'Clear Articulation', 'Emotional Depth'],
+        cadence: 'Natural storytelling rhythm',
+        accentDialect: 'Authentic expressive accent',
+        steeringPrompt: 'Expressive and engaging natural vocal timbre with authentic pacing.',
+      };
+    }
+
+    const validVoices = ['Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr'];
+    if (!validVoices.includes(profileData.baseVoice)) {
+      profileData.baseVoice = profileData.gender === 'female' ? 'Kore' : 'Charon';
+    }
+
+    // Synthesize instant preview sample in requested language
+    const isUrdu = language.toLowerCase().includes('urdu');
+    const previewScript = isUrdu
+      ? `السلام علیکم! میں ${profileData.nativeName || profileData.name} ہوں۔ میں آپ کی ہر تحریر اور کہانی کو ایک نیا رنگ دینے کے لیے حاضر ہوں۔`
+      : `Hello! I am ${profileData.name}. I am a uniquely generated voice persona ready to bring your words and stories to life.`;
+
+    let previewAudioBase64: string | null = null;
+    try {
+      const previewResponse = await ai.models.generateContent({
+        model: 'gemini-3.8-flash-lite-tts',
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text: previewScript,
+                speechMetadata: {
+                  style: `Voice Persona: ${profileData.timbreDescription}. Cadence: ${profileData.cadence}. ${profileData.steeringPrompt}`,
+                },
+              },
+            ],
+          },
+        ],
+        config: {
+          responseModalities: ['AUDIO'],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: profileData.baseVoice },
+            },
+          },
+        },
+      });
+
+      previewAudioBase64 = previewResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
+    } catch (previewErr) {
+      console.warn('[Voice Generator] Preview synthesis note:', previewErr);
+    }
+
+    const avatarGradients = [
+      'from-rose-500 to-indigo-700',
+      'from-emerald-500 to-teal-700',
+      'from-amber-500 to-rose-600',
+      'from-cyan-500 to-blue-700',
+      'from-fuchsia-600 to-purple-800',
+      'from-violet-600 to-pink-600',
+      'from-teal-500 to-emerald-700',
+      'from-orange-500 to-red-700',
+    ];
+    const randomAvatar = avatarGradients[Math.floor(Math.random() * avatarGradients.length)];
+
+    const newPersonaProfile = {
+      id: `ai_voice_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      name: profileData.name || name || 'Custom Persona',
+      nativeName: profileData.nativeName,
+      gender: profileData.gender || 'neutral',
+      baseVoice: profileData.baseVoice,
+      pitchShift: typeof profileData.pitchShift === 'number' ? profileData.pitchShift : 0,
+      description: profileData.description,
+      isCloned: true,
+      isAiGenerated: true,
+      avatarColor: randomAvatar,
+      tags: ['AI Generated', profileData.gender, ...(profileData.vocalTraits || []).slice(0, 2)],
+      timbreDescription: profileData.timbreDescription,
+      vocalTraits: profileData.vocalTraits,
+      cadence: profileData.cadence,
+      accentDialect: profileData.accentDialect,
+      steeringPrompt: profileData.steeringPrompt,
+      previewAudioBase64,
+      createdAt: new Date().toISOString(),
+    };
+
+    res.json({
+      success: true,
+      profile: newPersonaProfile,
+    });
+  } catch (error: any) {
+    console.warn('[Voice Generator Error]:', error);
+    res.status(500).json({
+      error: error?.message || 'Voice persona generation failed.',
+      details: String(error),
+    });
+  }
+});
+
+/**
  * POST /api/video/analyze-and-align
- * "Sees" video scenes using Gemini 3.8 Flash multimodal vision,
- * Generates timed, synchronized narration in Urdu or any chosen language,
- * and compiles a master aligned audio track timed to visual cues.
+ * "Sees" video scenes and extracts user speech/voice from the video,
+ * allows user to write any text, clones the user's voice from the video,
+ * and synthesizes the user's text aligned to the user's vocal identity and video timing!
  */
 app.post('/api/video/analyze-and-align', async (req, res) => {
   try {
@@ -540,6 +704,9 @@ app.post('/api/video/analyze-and-align', async (req, res) => {
       frames = [], // Array of { timestamp: number, imageBase64: string }
       videoBase64 = null,
       videoMimeType = 'video/mp4',
+      userAudioBase64 = null,
+      userAudioMimeType = 'audio/wav',
+      alignToUserVoice = false, // If true, extracts voice from user video audio & matches vocal profile
       videoDuration = 15,
       userScript = '',
       language = 'Urdu',
@@ -549,11 +716,103 @@ app.post('/api/video/analyze-and-align', async (req, res) => {
       voiceCloneProfile = null,
     } = req.body;
 
-    console.log(`[Video Aligner] Request: ${frames.length} frames, duration: ${videoDuration}s, language: ${language}`);
+    console.log(
+      `[Video Aligner] Request: ${frames.length} frames, duration: ${videoDuration}s, alignToUserVoice: ${alignToUserVoice}, script length: ${userScript?.length || 0}`
+    );
 
-    const effectiveVoice = voiceCloneProfile?.baseVoice || voice || 'Kore';
+    let effectiveProfile = voiceCloneProfile;
+    let detectedSpeakerVoice: any = null;
+    let videoTranscription: string | null = null;
 
-    // Build prompt parts for Gemini 3.8 Flash
+    // STEP 1: If user wants voice aligned to THEM and uploaded/recorded video audio is provided
+    if (alignToUserVoice && userAudioBase64) {
+      console.log('[Video Aligner] Extracting vocal identity and speech patterns from user video...');
+      try {
+        const voiceExtractionPrompt = `You are a master vocal phonetician.
+Analyze this audio recording of a user speaking in a video.
+1. Extract precise vocal timbre, pitch baseline, gender, cadence, and dialect characteristics.
+2. Select the closest baseVoice from:
+   - 'Fenrir': deep, authoritative masculine, low pitch
+   - 'Charon': calm, mature, deep, measured
+   - 'Puck': upbeat, bright, youthful
+   - 'Kore': warm, soothing, natural, feminine/medium
+   - 'Zephyr': clear, articulate, dynamic
+3. Transcribe any recognizable spoken words into "transcription".
+4. Create an acoustic steering prompt to synthesize new speech in this user's vocal signature.
+
+Return ONLY strict JSON with this schema:
+{
+  "name": "My Cloned Voice",
+  "gender": "male" | "female" | "neutral",
+  "baseVoice": "Puck" | "Charon" | "Kore" | "Fenrir" | "Zephyr",
+  "pitchShift": 0,
+  "timbreDescription": "Detailed summary of user's vocal signature",
+  "vocalTraits": ["Trait 1", "Trait 2", "Trait 3"],
+  "cadence": "Speaking tempo and cadence",
+  "accentDialect": "Detected accent / pronunciation style",
+  "steeringPrompt": "Acoustic direction prompt under 200 chars to replicate user voice",
+  "transcription": "Transcription of user speech if audible, or empty string"
+}`;
+
+        const acousticResponse = await ai.models.generateContent({
+          model: 'gemini-3.8-flash',
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                {
+                  inlineData: {
+                    mimeType: userAudioMimeType.split(';')[0],
+                    data: userAudioBase64,
+                  },
+                },
+                { text: voiceExtractionPrompt },
+              ],
+            },
+          ],
+          config: { responseMimeType: 'application/json' },
+        });
+
+        const acousticJsonText = acousticResponse.text?.trim() || '{}';
+        const parsedAcoustics = JSON.parse(acousticJsonText);
+
+        const validVoices = ['Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr'];
+        const chosenBaseVoice = validVoices.includes(parsedAcoustics.baseVoice)
+          ? parsedAcoustics.baseVoice
+          : parsedAcoustics.gender === 'female'
+          ? 'Kore'
+          : 'Charon';
+
+        detectedSpeakerVoice = {
+          id: `user_video_voice_${Date.now()}`,
+          name: 'My Video Voice (میری آواز)',
+          nativeName: 'میری ذاتی آواز',
+          gender: parsedAcoustics.gender || 'neutral',
+          baseVoice: chosenBaseVoice,
+          pitchShift: parsedAcoustics.pitchShift || 0,
+          description: `Voice cloned directly from your uploaded video: ${parsedAcoustics.timbreDescription || 'Personal vocal signature'}`,
+          isCloned: true,
+          avatarColor: 'from-amber-500 via-rose-600 to-purple-700',
+          tags: ['My Voice', 'Video Cloned', parsedAcoustics.gender || 'Speaker'],
+          timbreDescription: parsedAcoustics.timbreDescription || 'User personal voice profile',
+          vocalTraits: parsedAcoustics.vocalTraits || ['Authentic User Voice', 'Natural Pacing'],
+          cadence: parsedAcoustics.cadence || 'Natural conversational cadence',
+          accentDialect: parsedAcoustics.accentDialect || 'Authentic user accent',
+          steeringPrompt: parsedAcoustics.steeringPrompt || 'Natural conversational tone matching the speaker.',
+          createdAt: new Date().toISOString(),
+        };
+
+        videoTranscription = parsedAcoustics.transcription || null;
+        effectiveProfile = detectedSpeakerVoice;
+        console.log(`[Video Aligner] Extracted user voice signature: baseVoice=${chosenBaseVoice}, timbre="${parsedAcoustics.timbreDescription}"`);
+      } catch (voiceErr) {
+        console.warn('[Video Aligner] User voice extraction note (falling back to selected persona):', voiceErr);
+      }
+    }
+
+    const effectiveVoice = effectiveProfile?.baseVoice || voice || 'Kore';
+
+    // STEP 2: Analyze video visual keyframes + userScript
     const contentParts: any[] = [];
 
     if (frames && frames.length > 0) {
@@ -580,10 +839,10 @@ app.post('/api/video/analyze-and-align', async (req, res) => {
     }
 
     const scriptInstruction = userScript?.trim()
-      ? `The user has provided this script: "${userScript}". Divide and synchronize this script across the video scenes according to what is shown on screen.`
-      : `Write a compelling, natural documentary narration in ${language} (if Urdu, write authentic poetic and descriptive Urdu in Nastaliq script) that describes and narrates what is happening on screen.`;
+      ? `The user provided this custom script to be spoken: "${userScript.trim()}". Synchronize, divide, and pace this text cleanly across the video scenes matching the visual actions.`
+      : `Write a compelling, articulate narration in ${language} (if Urdu, write authentic poetic and descriptive Urdu in Nastaliq script) that describes and narrates the actions occurring on screen.`;
 
-    const alignPrompt = `You are an elite film sound director and audio description narrator.
+    const alignPrompt = `You are an elite video sound director and audio synchronizer.
 Analyze these timestamped video frames across the video duration of ${videoDuration.toFixed(1)} seconds.
 ${scriptInstruction}
 
@@ -604,7 +863,7 @@ Return ONLY a strict JSON object with this schema:
       "endTime": 5.0,
       "visualDescription": "Description of scene",
       "script": "Voiceover line in ${language}",
-      "emotion": "e.g. Awe, dramatic, inspiring, calm",
+      "emotion": "e.g. Awe, dramatic, inspiring, calm, natural",
       "recommendedSpeed": 1.0
     }
   ]
@@ -639,9 +898,9 @@ Return ONLY a strict JSON object with this schema:
             startTime: 0,
             endTime: Math.min(6, videoDuration),
             visualDescription: 'Visual scene introduction',
-            script: language.toLowerCase().includes('urdu')
+            script: userScript?.trim() || (language.toLowerCase().includes('urdu')
               ? 'یہ دلکش منظر قدرت کی خوبصورتی اور اس کی عظمت کا زندہ ثبوت ہے۔'
-              : 'This visual journey reveals breathtaking perspectives.',
+              : 'This visual journey reveals breathtaking perspectives.'),
             emotion: 'Cinematic',
             recommendedSpeed: 1.0,
           },
@@ -650,18 +909,24 @@ Return ONLY a strict JSON object with this schema:
     }
 
     const scenes = alignmentData.scenes || [];
-    console.log(`[Video Aligner] Extracted ${scenes.length} synchronized scenes`);
+    console.log(`[Video Aligner] Extracted ${scenes.length} synchronized scenes. Generating voice track...`);
 
     const sampleRate = 24000;
     const numChannels = 1;
     const bitsPerSample = 16;
     const bytesPerSec = (sampleRate * numChannels * bitsPerSample) / 8;
 
-    // Allocate total master PCM buffer matching video duration (with a small buffer room)
+    // Allocate total master PCM buffer matching video duration
     const masterDuration = Math.max(videoDuration, 1);
     const masterPCM = Buffer.alloc(Math.round(masterDuration * bytesPerSec));
 
-    // Synthesize each scene in parallel
+    // Build voice persona steering directive
+    let cloneDirective = '';
+    if (effectiveProfile) {
+      cloneDirective = `Speaker Persona & Timbre: ${effectiveProfile.timbreDescription || ''}. Cadence: ${effectiveProfile.cadence || ''}. Direction: ${effectiveProfile.steeringPrompt || ''}.`;
+    }
+
+    // STEP 3: Synthesize each scene in parallel with user's voice profile
     const synthesizedScenes = await Promise.all(
       scenes.map(async (scene: any, idx: number) => {
         try {
@@ -675,7 +940,7 @@ Return ONLY a strict JSON object with this schema:
                   {
                     text: scene.script.trim(),
                     speechMetadata: {
-                      style: `Language: ${language}. Tone: ${scene.emotion || emotion}. Speaking pace: aligned to visual scene.`,
+                      style: `Language: ${language}. Tone: ${scene.emotion || emotion}. Speaking pace: aligned to visual scene. ${cloneDirective}`,
                     },
                   },
                 ],
@@ -738,6 +1003,9 @@ Return ONLY a strict JSON object with this schema:
       masterDuration: Number(masterDuration.toFixed(2)),
       language,
       voice: effectiveVoice,
+      detectedSpeakerVoice,
+      videoTranscription,
+      alignmentMode: alignToUserVoice && detectedSpeakerVoice ? 'voice-cloned-from-video' : 'selected-persona',
     });
   } catch (error: any) {
     console.warn('[Video Aligner Error]:', error);
